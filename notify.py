@@ -42,7 +42,8 @@ def send_wechat_notice():
         "token": token,
         "title": title,
         "content": content,
-        "template": "markdown" # 支持好看的排版
+        "template": "markdown",# 支持好看的排版
+        "topic": "210706"
     }
     
     response = requests.post(url, json=data)
