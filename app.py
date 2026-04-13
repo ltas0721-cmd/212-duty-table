@@ -10,10 +10,10 @@ def get_duty_person():
     # ====== 放假回来后，只需要修改以下两行 ======
     
     # 1. 修改为回宿舍、重新开始排班的那一天
-    anchor_date = datetime.date(2026, 5, 5) # 假设五一假期5月5日回来
+    anchor_date = datetime.date(2026, 4, 13) 
     
     # 2. 修改回宿舍这一天，决定由谁先开始倒垃圾
-    anchor_person = "郑加裕" 
+    anchor_person = "李名伟" 
     
     
     # 获取这个基准人在列表里的初始位置 (0, 1, 2, 3)
