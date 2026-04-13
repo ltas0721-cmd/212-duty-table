@@ -1,1 +1,27 @@
+name: Daily Trash Reminder
 
+on:
+  schedule:
+    # 每天北京時間 07:30 執行 (對應 UTC 時間 23:30)
+    - cron: '30 23 * * *'
+  workflow_dispatch: # 允许你手动点击测试运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install requests
+      run: pip install requests
+      
+    - name: Run notify script
+      env:
+        PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+      run: python notify.py
