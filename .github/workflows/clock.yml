@@ -2,9 +2,8 @@ name: Daily Trash Reminder
 
 on:
   schedule:
-    # 每天北京時間 07:30 執行 (對應 UTC 時間 23:30)
     - cron: '30 23 * * *'
-  workflow_dispatch: # 允许你手动点击测试运行
+  workflow_dispatch:
 
 jobs:
   build:
