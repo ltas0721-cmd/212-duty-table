@@ -3,10 +3,9 @@ import datetime
 import requests
 
 def send_wechat_notice():
-    # 1. 照搬你的排班核心逻辑
     roommates = ["李名伟", "王晟", "郑加裕", "陈镇灿"]
     anchor_date = datetime.date(2026, 4, 13) 
-    anchor_person = "李名伟" # 填你们现在的起始人
+    anchor_person = "李名伟" 
     
     today = datetime.date.today()
     days_passed = (today - anchor_date).days
@@ -18,7 +17,7 @@ def send_wechat_notice():
     today_person = roommates[today_index]
     tomorrow_person = roommates[tomorrow_index]
     
-    # 2. 准备骚话文案
+
     title = "🚨 212宿舍倒垃圾警报！"
     content = f"""
     ### 👑 今日倒垃圾大元帅：【{today_person}】
@@ -29,20 +28,20 @@ def send_wechat_notice():
     （本通知由宿舍云端物理超度系统自动发送）
     """
     
-    # 3. 从环境变量获取刚才的 Token (为了安全，不写死在代码里)
+    # 获取Token 
     token = os.environ.get("PUSHPLUS_TOKEN")
     
     if not token:
         print("没找到 Token，没法发消息啦！")
         return
 
-    # 4. 发送请求给 PushPlus
+
     url = "http://www.pushplus.plus/send"
     data = {
         "token": token,
         "title": title,
         "content": content,
-        "template": "markdown",# 支持好看的排版
+        "template": "markdown",
         "topic": "210706"
     }
     
