@@ -79,7 +79,7 @@ def main():
 ---
 🔜 明天准备接客的是：【{tomorrow_person}】<br>
 
-<font color="#808080" size="2">*(本通知由宿舍云端物理超度系统 2.0 自动发送)*</font>
+<font color="#808080" size="2">*(本通知由宿舍云端物理超度系统 3.0 自动发送)*</font>
 """
     
     execute_pushplus_notice(push_token, push_topic, title, content)
