@@ -3,7 +3,7 @@ import datetime
 from supabase import create_client, Client
 
 st.set_page_config(page_title="212宿舍值日系统 3.0", page_icon="🛡️")
-st.title("🛡️ 宿舍倒垃圾排班表 (全栈 3.0 版)")
+st.title("🗑️ 宿舍倒垃圾排班表 (全栈 3.0 版)")
 
 # 初始化 Supabase 客户端与环境变量
 try:
