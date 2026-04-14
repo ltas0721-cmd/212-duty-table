@@ -2,66 +2,86 @@ import streamlit as st
 import datetime
 from supabase import create_client, Client
 
-st.set_page_config(page_title="212宿舍倒垃圾排班系统 2.0", page_icon="🗑️")
-st.title("🗑️ 宿舍倒垃圾排班表 (云端 2.0 版)")
+st.set_page_config(page_title="212宿舍值日系统 3.0", page_icon="🛡️")
+st.title("🛡️ 宿舍倒垃圾排班表 (全栈 3.0 版)")
 
-# 初始化 Supabase 客户端
+# 初始化 Supabase 客户端与环境变量
 try:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
+    # 获取管理员安全口令，未配置则使用默认回退值
+    admin_password = st.secrets.get("ADMIN_PASSWORD", "212admin")
     supabase: Client = create_client(url, key)
 except Exception as e:
-    st.error("🚨 数据库连接失败，请检查环境变量配置。")
+    st.error("🚨 数据库连接失败，请检查系统环境变量配置。")
     st.stop()
 
-# 缓存数据库请求，避免高并发下超额调用 API
+# 数据读取与前端缓存策略
 @st.cache_data(ttl=600)
 def get_dorm_data(dorm_id: str):
     try:
-        response = supabase.table("dorm_rules").select("*").eq("dorm_id", dorm_id).execute()
-        
-        if response.data:
-            data = response.data[0]
-            roommates = [name.strip() for name in data["roommates"].split(",")]
-            anchor_date = datetime.datetime.strptime(data["anchor_date"], "%Y-%m-%d").date()
-            anchor_person = data["anchor_person"]
-            return roommates, anchor_date, anchor_person
-        return None, None, None
+        res = supabase.table("dorm_rules").select("*").eq("dorm_id", dorm_id).execute()
+        return res.data[0] if res.data else None
     except Exception as e:
-        st.error(f"🚨 读取数据库时发生错误: {e}")
-        return None, None, None
+        st.error(f"🚨 数据库查询异常: {e}")
+        return None
 
-def show_duty_schedule():
-    dorm_id = "212"  # 预留扩展接口：后续升级多用户时可改为前端输入
-    roommates, anchor_date, anchor_person = get_dorm_data(dorm_id)
+dorm_id = "212"  # 预留扩展接口
+data = get_dorm_data(dorm_id)
 
-    if not roommates:
-        st.warning(f"⚠️ 找不到宿舍 {dorm_id} 的排班记录。")
-        return
+# 核心展示与算法渲染区
+if data:
+    roommates = [n.strip() for n in data["roommates"].split(",")]
+    anchor_date = datetime.datetime.strptime(data["anchor_date"], "%Y-%m-%d").date()
+    anchor_person = data["anchor_person"]
 
-    # 数据校验防呆设计
-    if anchor_person not in roommates:
-         st.error(f"🚨 错误：初始人 '{anchor_person}' 不在宿舍名单里！请检查数据库。")
-         return
-         
-    anchor_index = roommates.index(anchor_person)
-    selected_date = st.date_input("请选择你想查看的日期：", datetime.date.today())
-    
-    # 核心排班算法
-    days_passed = (selected_date - anchor_date).days
+    selected_date = st.date_input("请选择查看日期：", datetime.date.today())
+    days_diff = (selected_date - anchor_date).days
     num_people = len(roommates)
     
-    today_index = (days_passed + anchor_index) % num_people
-    tomorrow_index = (days_passed + 1 + anchor_index) % num_people
-    
-    today_person = roommates[today_index]
-    tomorrow_person = roommates[tomorrow_index]
-    
-    st.success(f"👑 **{selected_date}** 倒垃圾大元帅：【**{today_person}**】")
-    st.info(f"🔜 明天准备接客的是：【{tomorrow_person}】")
+    # 数据一致性防呆校验
+    if anchor_person in roommates:
+        idx = roommates.index(anchor_person)
+        today_p = roommates[(days_diff + idx) % num_people]
+        tomorrow_p = roommates[(days_diff + 1 + idx) % num_people]
+        
+        st.success(f"👑 **{selected_date}** 倒垃圾大元帅：【**{today_p}**】")
+        st.info(f"🔜 明天准备接客的是：【{tomorrow_p}】")
+    else:
+        st.error("🚨 数据异常：初始负责人不在当前名单中，请进入控制台修正。")
+else:
+    st.warning("⚠️ 数据库中未查询到该宿舍配置。")
 
-if __name__ == "__main__":
-    show_duty_schedule()
+# --- 后台管理模块 ---
+st.markdown("---")
+with st.expander("🔐 管理员控制台 (Admin Panel)"):
+    pwd = st.text_input("请输入管理口令：", type="password")
     
-    st.markdown("---")
-    st.caption("Powered by Supabase & Streamlit | 212 宿舍云端数据中心")
+    if pwd == admin_password:
+        st.subheader("⚙️ 排班规则热更新")
+        # 动态绑定当前数据库表单值
+        new_names = st.text_input("室友名单（请用英文逗号分隔）：", value=data["roommates"] if data else "")
+        new_date = st.date_input("设置新锚点日期：", value=anchor_date if data else datetime.date.today())
+        
+        # 动态生成下拉列表，防止输入不存在的名字
+        options_list = [n.strip() for n in new_names.split(",")] if new_names else []
+        # 默认选中当前的负责人，如果当前负责人被删了，就默认选列表里的第一个
+        default_idx = options_list.index(anchor_person) if anchor_person in options_list else 0
+        new_person = st.selectbox("选择新锚点负责人：", options=options_list, index=default_idx)
+
+        if st.button("🚀 同步覆写至云端数据库"):
+            try:
+                supabase.table("dorm_rules").update({
+                    "roommates": new_names,
+                    "anchor_date": str(new_date),
+                    "anchor_person": new_person
+                }).eq("dorm_id", dorm_id).execute()
+                
+                st.cache_data.clear()  # 触发缓存失效，准备重载
+                st.rerun()             # 触发前端静默刷新，体验更佳
+            except Exception as e:
+                st.error(f"❌ 数据同步异常：{e}")
+    elif pwd:
+        st.error("🔑 权限校验失败，拒绝访问。")
+
+st.caption("Powered by Streamlit & Supabase | 212 宿舍全栈数据中心 v3.0")
