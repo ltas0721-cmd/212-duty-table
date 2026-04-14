@@ -1,6 +1,7 @@
 import os
 import datetime
 import requests
+import chinese_calendar as calendar  # [3.2新增] 导入中国法定节假日库
 from supabase import create_client, Client
 
 def fetch_dorm_config(supabase: Client, dorm_id: str) -> dict:
@@ -39,6 +40,14 @@ def main():
         print("[Fatal] 环境变量缺失，请检查 GitHub Actions Secrets 配置。")
         return
 
+    # --- [3.1新增] 节假日智能识别逻辑 ---
+    today = datetime.date.today()
+    # is_holiday() 会自动判断是否是法定节假日或周末（包含调休逻辑）
+    if calendar.is_holiday(today):
+        print(f"[Info] 今日 {today} 是法定节假日/休息日，系统进入休眠模式，不发送倒垃圾通知。")
+        return
+    # ------------------------------------
+
     supabase: Client = create_client(sb_url, sb_key)
     dorm_id = "212"  # 预留扩展: 未来可遍历数据库中所有活跃宿舍执行推送
 
@@ -59,7 +68,6 @@ def main():
         return
 
     # 3. 核心排班算法
-    today = datetime.date.today()
     days_passed = (today - anchor_date).days
     num_people = len(roommates)
 
@@ -79,7 +87,7 @@ def main():
 ---
 🔜 明天准备接客的是：【{tomorrow_person}】<br>
 
-<font color="#808080" size="2">*(本通知由宿舍云端物理超度系统 3.0 自动发送)*</font>
+<font color="#808080" size="2">*(本通知由宿舍云端物理超度系统 3.1 自动发送)*</font>
 """
     
     execute_pushplus_notice(push_token, push_topic, title, content)
