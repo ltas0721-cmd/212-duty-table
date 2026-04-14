@@ -11,16 +11,18 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-      
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
-        
-    - name: Install requests
-      run: pip install requests
-      
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
     - name: Run notify script
       env:
         PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       run: python notify.py
