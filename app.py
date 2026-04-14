@@ -2,8 +2,8 @@ import streamlit as st
 import datetime
 from supabase import create_client, Client
 
-st.set_page_config(page_title="212宿舍值日系统 3.1", page_icon="🛡️")
-st.title("🗑️ 宿舍倒垃圾排班表 (全栈 3.1 版)")
+st.set_page_config(page_title="212宿舍值日系统 3.1.1", page_icon="🛡️")
+st.title("🗑️ 宿舍倒垃圾排班表 (全栈 3.1.1 版)")
 
 # 初始化 Supabase 客户端与环境变量
 try:
@@ -84,4 +84,4 @@ with st.expander("🔐 管理员控制台 (Admin Panel)"):
     elif pwd:
         st.error("🔑 权限校验失败，拒绝访问。")
 
-st.caption("Powered by Streamlit & Supabase | 212 宿舍全栈数据中心 v3.1")
+st.caption("Powered by Streamlit & Supabase | 212 宿舍全栈数据中心 v3.1.1")
