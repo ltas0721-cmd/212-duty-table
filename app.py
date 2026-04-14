@@ -2,21 +2,47 @@ import streamlit as st
 import datetime
 from supabase import create_client, Client
 
+# 1. 基础配置
 st.set_page_config(page_title="212宿舍值日系统 3.1.1", page_icon="🛡️")
+
+# 2. 注入 CSS 修复标题换行问题
+st.markdown(
+    """
+    <style>
+    /* 针对电脑端大屏幕：强制标题一行显示 */
+    .stApp h1 {
+        white-space: nowrap !important;
+        font-size: 2.2rem !important; /* 稍微缩小默认字号 */
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    /* 针对手机端小屏幕：允许换行并自动缩小字号，防止溢出 */
+    @media (max-width: 640px) {
+        .stApp h1 {
+            white-space: normal !important;
+            font-size: 1.6rem !important;
+            line-height: 1.2;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("🗑️ 宿舍倒垃圾排班表 (全栈 3.1.1 版)")
 
-# 初始化 Supabase 客户端与环境变量
+# 3. 初始化 Supabase 客户端与环境变量
 try:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
-    # 获取管理员安全口令，未配置则使用默认回退值
     admin_password = st.secrets.get("ADMIN_PASSWORD", "212admin")
     supabase: Client = create_client(url, key)
 except Exception as e:
     st.error("🚨 数据库连接失败，请检查系统环境变量配置。")
     st.stop()
 
-# 数据读取与前端缓存策略
+# 4. 数据读取与前端缓存策略
 @st.cache_data(ttl=600)
 def get_dorm_data(dorm_id: str):
     try:
@@ -26,10 +52,10 @@ def get_dorm_data(dorm_id: str):
         st.error(f"🚨 数据库查询异常: {e}")
         return None
 
-dorm_id = "212"  # 预留扩展接口
+dorm_id = "212"  
 data = get_dorm_data(dorm_id)
 
-# 核心展示与算法渲染区
+# 5. 核心展示与算法渲染区
 if data:
     roommates = [n.strip() for n in data["roommates"].split(",")]
     anchor_date = datetime.datetime.strptime(data["anchor_date"], "%Y-%m-%d").date()
@@ -39,7 +65,6 @@ if data:
     days_diff = (selected_date - anchor_date).days
     num_people = len(roommates)
     
-    # 数据一致性防呆校验
     if anchor_person in roommates:
         idx = roommates.index(anchor_person)
         today_p = roommates[(days_diff + idx) % num_people]
@@ -52,20 +77,17 @@ if data:
 else:
     st.warning("⚠️ 数据库中未查询到该宿舍配置。")
 
-# --- 后台管理模块 ---
+# 6. 后台管理模块
 st.markdown("---")
 with st.expander("🔐 管理员控制台 (Admin Panel)"):
     pwd = st.text_input("请输入管理口令：", type="password")
     
     if pwd == admin_password:
         st.subheader("⚙️ 排班规则热更新")
-        # 动态绑定当前数据库表单值
         new_names = st.text_input("室友名单（请用英文逗号分隔）：", value=data["roommates"] if data else "")
         new_date = st.date_input("设置新锚点日期：", value=anchor_date if data else datetime.date.today())
         
-        # 动态生成下拉列表，防止输入不存在的名字
         options_list = [n.strip() for n in new_names.split(",")] if new_names else []
-        # 默认选中当前的负责人，如果当前负责人被删了，就默认选列表里的第一个
         default_idx = options_list.index(anchor_person) if anchor_person in options_list else 0
         new_person = st.selectbox("选择新锚点负责人：", options=options_list, index=default_idx)
 
@@ -77,8 +99,8 @@ with st.expander("🔐 管理员控制台 (Admin Panel)"):
                     "anchor_person": new_person
                 }).eq("dorm_id", dorm_id).execute()
                 
-                st.cache_data.clear()  # 触发缓存失效，准备重载
-                st.rerun()             # 触发前端静默刷新，体验更佳
+                st.cache_data.clear()  
+                st.rerun()             
             except Exception as e:
                 st.error(f"❌ 数据同步异常：{e}")
     elif pwd:
