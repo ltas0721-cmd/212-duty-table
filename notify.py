@@ -31,13 +31,17 @@ def main():
         print("[Fatal] 环境变量缺失。")
         return
 
-    # --- [3.1.1 精准识别] 只在法定大长假休眠 ---
-    today = datetime.date.today()
+    # --- [3.1.2 时区修复 & 精准识别] 强制使用北京时间，且只在法定大长假休眠 ---
+    # 获取全球统一 UTC 时间，手动加上 8 小时转换为北京时间
+    utc_now = datetime.datetime.now(datetime.timezone.utc)
+    beijing_now = utc_now + datetime.timedelta(hours=8)
+    today = beijing_now.date() 
+    
     on_holiday, holiday_name = calendar.get_holiday_detail(today)
     
     # 只有当今天是休息日且有明确节日名称时，才判定为“放假回家的日子”
     if on_holiday and holiday_name is not None:
-        print(f"[Info] 今日 {today} 是 {holiday_name}，系统休眠。")
+        print(f"[Info] 北京时间 {today} 是 {holiday_name}，系统休眠。")
         return
     # ----------------------------------------
 
@@ -58,6 +62,7 @@ def main():
         print(f"[Fatal] 初始人不在名单中。")
         return
 
+    # 这里的 today 已经统一切换成了准确的北京时间
     days_passed = (today - anchor_date).days
     num_people = len(roommates)
     anchor_index = roommates.index(anchor_person)
@@ -75,7 +80,7 @@ def main():
 ---
 🔜 明天准备接客的是：【{tomorrow_person}】<br>
 
-<font color="#808080" size="2">*(本通知由宿舍云端物理超度系统 3.1.1 自动发送)*</font>
+<font color="#808080" size="2">*(本通知由宿舍云端物理超度系统 3.1.2 自动发送)*</font>
 """
     execute_pushplus_notice(push_token, push_topic, title, content)
 
