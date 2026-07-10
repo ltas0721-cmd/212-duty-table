@@ -37,8 +37,7 @@ def main():
     beijing_now = utc_now + datetime.timedelta(hours=8)
     today = beijing_now.date() 
 
-    # ====== 1. 新增：寒暑假区间拦截 ======
-    # 假设暑假是 7月11日 到 8月31日，寒假是 1月15日 到 2月20日（你可以根据你们学校的实际情况修改日期）
+    # ====== 1. 寒暑假区间拦截 ======
     month = today.month
     day = today.day
 
@@ -48,12 +47,10 @@ def main():
     if is_summer_vacation or is_winter_vacation:
         print(f"[Info] 北京时间 {today} 属于寒暑假期间，系统休眠。")
         return
-    # ====================================
 
     # ====== 2. 原有的法定节假日拦截 ======
     on_holiday, holiday_name = calendar.get_holiday_detail(today)
     
-    # 只有当今天是休息日且有明确节日名称时，才判定为“放假回家的日子”
     if on_holiday and holiday_name is not None:
         print(f"[Info] 北京时间 {today} 是 {holiday_name}，系统休眠。")
         return
