@@ -31,19 +31,33 @@ def main():
         print("[Fatal] 环境变量缺失。")
         return
 
-    # --- [3.1.2 时区修复 & 精准识别] 强制使用北京时间，且只在法定大长假休眠 ---
+# --- [3.1.2 时区修复 & 精准识别] 强制使用北京时间，且在假期期间休眠 ---
     # 获取全球统一 UTC 时间，手动加上 8 小时转换为北京时间
     utc_now = datetime.datetime.now(datetime.timezone.utc)
     beijing_now = utc_now + datetime.timedelta(hours=8)
     today = beijing_now.date() 
-    
+
+    # ====== 1. 新增：寒暑假区间拦截 ======
+    # 假设暑假是 7月11日 到 8月31日，寒假是 1月15日 到 2月20日（你可以根据你们学校的实际情况修改日期）
+    month = today.month
+    day = today.day
+
+    is_summer_vacation = (month == 7 and day >= 11) or (month == 8 and day <= 29)  # 7月11日~8月29日
+    is_winter_vacation = (month == 1 and day >= 15) or (month == 2 and day <= 20)  # 1月15日~2月20日
+
+    if is_summer_vacation or is_winter_vacation:
+        print(f"[Info] 北京时间 {today} 属于寒暑假期间，系统休眠。")
+        return
+    # ====================================
+
+    # ====== 2. 原有的法定节假日拦截 ======
     on_holiday, holiday_name = calendar.get_holiday_detail(today)
     
     # 只有当今天是休息日且有明确节日名称时，才判定为“放假回家的日子”
     if on_holiday and holiday_name is not None:
         print(f"[Info] 北京时间 {today} 是 {holiday_name}，系统休眠。")
         return
-    # ----------------------------------------
+    # -----------------------------------------------------------------
 
     supabase: Client = create_client(sb_url, sb_key)
     dorm_id = "212"
