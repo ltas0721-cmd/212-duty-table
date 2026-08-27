@@ -3,6 +3,7 @@ import datetime
 import requests
 import chinese_calendar as calendar
 from supabase import create_client, Client
+from zoneinfo import ZoneInfo
 
 def fetch_dorm_config(supabase: Client, dorm_id: str) -> dict:
     try:
@@ -12,11 +13,20 @@ def fetch_dorm_config(supabase: Client, dorm_id: str) -> dict:
         print(f"[Error] 数据库查询失败: {e}")
         return None
 
+def keep_database_alive(supabase: Client) -> bool:
+    """Perform a tiny read so Supabase free projects do not go idle during breaks."""
+    try:
+        supabase.table("dorm_rules").select("dorm_id").limit(1).execute()
+        return True
+    except Exception as e:
+        print(f"[Error] 云端保活查询失败: {e}")
+        return False
+
 def execute_pushplus_notice(token: str, topic: str, title: str, content: str):
-    url = "http://www.pushplus.plus/send"
+    url = "https://www.pushplus.plus/send"
     payload = {"token": token, "title": title, "content": content, "template": "markdown", "topic": topic}
     try:
-        res = requests.post(url, json=payload)
+        res = requests.post(url, json=payload, timeout=20)
         res.raise_for_status()
         print(f"[Success] PushPlus 推送成功: {res.json()}")
     except Exception as e:
@@ -31,11 +41,16 @@ def main():
         print("[Fatal] 环境变量缺失。")
         return
 
-# --- [3.1.2 时区修复 & 精准识别] 强制使用北京时间，且在假期期间休眠 ---
-    # 获取全球统一 UTC 时间，手动加上 8 小时转换为北京时间
-    utc_now = datetime.datetime.now(datetime.timezone.utc)
-    beijing_now = utc_now + datetime.timedelta(hours=8)
-    today = beijing_now.date() 
+    # 使用带时区的时间，避免依赖 GitHub runner 的本地时区。
+    today = datetime.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+    supabase: Client = create_client(sb_url, sb_key)
+    dorm_id = "212"
+
+    # Supabase 免费计划会因长期无请求自动暂停。即使是假期，也先做一次
+    # 轻量查询维持数据库活跃，再决定是否发送通知。
+    if not keep_database_alive(supabase):
+        return
 
     # ====== 1. 寒暑假区间拦截 ======
     month = today.month
@@ -56,18 +71,22 @@ def main():
         return
     # -----------------------------------------------------------------
 
-    supabase: Client = create_client(sb_url, sb_key)
-    dorm_id = "212"
-
     data = fetch_dorm_config(supabase, dorm_id)
     if not data:
-        print(f"[Warning] 未获取到配置。")
+        print("[Warning] 未获取到配置。")
         return
 
-    roommates = [name.strip() for name in data["roommates"].split(",")]
-    anchor_date = datetime.datetime.strptime(data["anchor_date"], "%Y-%m-%d").date()
-    anchor_person = data["anchor_person"]
-    push_topic = data["pushplus_topic"]
+    roommates = [name.strip() for name in str(data.get("roommates", "")).split(",") if name.strip()]
+    if not roommates:
+        print("[Fatal] 室友名单为空。")
+        return
+    try:
+        anchor_date = datetime.datetime.strptime(str(data["anchor_date"]), "%Y-%m-%d").date()
+    except (KeyError, TypeError, ValueError) as e:
+        print(f"[Fatal] 锚点日期无效: {e}")
+        return
+    anchor_person = str(data.get("anchor_person", "")).strip()
+    push_topic = str(data.get("pushplus_topic", "")).strip()
 
     if anchor_person not in roommates:
         print(f"[Fatal] 初始人不在名单中。")
