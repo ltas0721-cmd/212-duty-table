@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
 from supabase import Client, create_client
+from schedule import person_for_date, week_schedule
 
 
 st.set_page_config(
@@ -118,12 +119,6 @@ def parse_config(data: Optional[dict]) -> Tuple[List[str], Optional[datetime.dat
     return names, date_value, person
 
 
-def person_for_date(selected: datetime.date, anchor_date: datetime.date, names: List[str], anchor_person: str) -> str:
-    anchor_index = names.index(anchor_person)
-    offset = (selected - anchor_date).days
-    return names[(offset + anchor_index) % len(names)]
-
-
 st.markdown(
     '<div id="home" class="nav-shell"><div class="brand"><span class="brand-mark">212</span><span>宿舍值日</span></div><nav class="nav-links"><a href="#home">值日表</a><a href="#about">怎么用</a><a href="#admin">管理员</a></nav><div class="online-pill"><span class="online-dot"></span>云端在线</div></div>',
     unsafe_allow_html=True,
@@ -158,6 +153,10 @@ def get_dorm_data(dorm_id: str):
 dorm_id = "212"
 data = get_dorm_data(dorm_id)
 roommates, anchor_date, anchor_person = parse_config(data)
+try:
+    skip_rows = supabase.table("duty_skips").select("id, roommate, start_date, skip_count, created_at, active").eq("dorm_id", dorm_id).eq("active", True).order("start_date").execute().data or []
+except Exception:
+    skip_rows = []
 
 if data and roommates and anchor_date and anchor_person in roommates:
     left, right = st.columns([1.55, 1], gap="large")
@@ -167,18 +166,40 @@ if data and roommates and anchor_date and anchor_person in roommates:
         week_rows = []
         for day_offset in range(7):
             day_value = selected_date + datetime.timedelta(days=day_offset)
-            person = person_for_date(day_value, anchor_date, roommates, anchor_person)
+            person = person_for_date(day_value, anchor_date, roommates, anchor_person, skip_rows)
             week_rows.append(f'<div class="week-row"><span class="week-day">{day_value:%m/%d} · {"今天" if day_offset == 0 else "周" + "一二三四五六日"[day_value.weekday()]}</span><span class="week-person">{escape(person)}</span></div>')
         st.markdown(f'<div class="side-card"><div class="week-list">{"".join(week_rows)}</div></div>', unsafe_allow_html=True)
     with left:
-        today_person = person_for_date(selected_date, anchor_date, roommates, anchor_person)
-        tomorrow_person = person_for_date(selected_date + datetime.timedelta(days=1), anchor_date, roommates, anchor_person)
+        today_person = person_for_date(selected_date, anchor_date, roommates, anchor_person, skip_rows)
+        tomorrow_person = person_for_date(selected_date + datetime.timedelta(days=1), anchor_date, roommates, anchor_person, skip_rows)
         st.markdown(
             f'<section class="schedule-card"><div class="schedule-label">今日值日</div><div class="schedule-date">{escape(format_date(selected_date))}</div><div class="schedule-name">{escape(today_person)}</div><div class="schedule-next">明天接班：<strong>{escape(tomorrow_person)}</strong></div></section>',
             unsafe_allow_html=True,
         )
 else:
     st.markdown('<div class="empty-card">暂时没有完整的 212 宿舍排班配置，请稍后再试或联系管理员。</div>', unsafe_allow_html=True)
+
+
+st.markdown('<div class="side-card" style="margin-top:1.25rem"><div class="side-title">临时轮空</div><div class="side-copy">要回家几天？标记后，排班会自动顺延。</div></div>', unsafe_allow_html=True)
+if roommates:
+    skip_left, skip_mid, skip_right = st.columns([1.2, 1.1, .8])
+    with skip_left:
+        skip_person = st.selectbox("谁轮空", options=roommates, key="skip_person")
+    with skip_mid:
+        skip_start = st.date_input("从哪天开始", value=datetime.date.today(), key="skip_start", format="YYYY-MM-DD")
+    with skip_right:
+        skip_count = st.number_input("轮空次数", min_value=1, max_value=30, value=1, step=1, key="skip_count")
+    if st.button("提交轮空标记", key="submit_skip"):
+        try:
+            supabase.table("duty_skips").insert({"dorm_id": dorm_id, "roommate": skip_person, "start_date": str(skip_start), "skip_count": int(skip_count)}).execute()
+            st.cache_data.clear()
+            st.success(f"已记录：{skip_person} 从 {skip_start} 起轮空 {skip_count} 次。")
+            st.rerun()
+        except Exception as error:
+            st.error(f"提交失败，请确认已创建 duty_skips 表：{error}")
+    if skip_rows:
+        active_text = " · ".join(f"{row.get('roommate')}（{row.get('start_date')}，{row.get('skip_count')} 次）" for row in skip_rows)
+        st.caption(f"当前生效：{active_text}")
 
 
 st.markdown(
@@ -191,6 +212,17 @@ st.markdown('<section id="admin" class="admin-section"><div class="admin-card"><
 with st.expander("打开管理员入口"):
     password = st.text_input("管理密码", type="password")
     if password == admin_password:
+        if skip_rows:
+            st.markdown("**轮空记录管理**")
+            for row in skip_rows:
+                row_id = row.get("id")
+                if st.button(f"撤销 {row.get('roommate')} · {row.get('start_date')}", key=f"revoke_{row_id}"):
+                    if admin_supabase is None:
+                        st.error("未配置 SUPABASE_SERVICE_ROLE_KEY，不能撤销记录。")
+                    else:
+                        admin_supabase.table("duty_skips").update({"active": False}).eq("id", row_id).execute()
+                        st.cache_data.clear()
+                        st.rerun()
         current_names = data.get("roommates", "") if data else ""
         current_date = anchor_date or datetime.date.today()
         new_names = st.text_input("室友名单（用英文逗号分隔）", value=current_names)
