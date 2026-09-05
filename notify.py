@@ -4,6 +4,7 @@ import requests
 import chinese_calendar as calendar
 from supabase import create_client, Client
 from zoneinfo import ZoneInfo
+from schedule import person_for_date
 
 def fetch_dorm_config(supabase: Client, dorm_id: str) -> dict:
     try:
@@ -92,15 +93,14 @@ def main():
         print(f"[Fatal] 初始人不在名单中。")
         return
 
-    # 这里的 today 已经统一切换成了准确的北京时间
-    days_passed = (today - anchor_date).days
-    num_people = len(roommates)
-    anchor_index = roommates.index(anchor_person)
-    today_index = (days_passed + anchor_index) % num_people
-    tomorrow_index = (days_passed + 1 + anchor_index) % num_people
+    try:
+        skip_rows = supabase.table("duty_skips").select("roommate, start_date, skip_count, active").eq("dorm_id", dorm_id).eq("active", True).execute().data or []
+    except Exception as e:
+        print(f"[Warning] 轮空记录读取失败，将按普通排班发送: {e}")
+        skip_rows = []
 
-    today_person = roommates[today_index]
-    tomorrow_person = roommates[tomorrow_index]
+    today_person = person_for_date(today, anchor_date, roommates, anchor_person, skip_rows)
+    tomorrow_person = person_for_date(today + datetime.timedelta(days=1), anchor_date, roommates, anchor_person, skip_rows)
 
     title = f"🚨 {dorm_id}宿舍倒垃圾警报！"
     content = f"""
