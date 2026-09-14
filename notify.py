@@ -72,7 +72,12 @@ def main():
         return
     # -----------------------------------------------------------------
 
-    data = fetch_dorm_config(supabase, dorm_id)
+    try:
+        snapshot = supabase.rpc('read_duty_schedule', {'p_dorm': dorm_id}).execute().data
+        data = snapshot['config']
+        skip_rows, pause_rows = snapshot['skips'], snapshot['pauses']
+    except Exception as e:
+        raise RuntimeError('无法读取完整排班，停止发送提醒') from e
     if not data:
         print("[Warning] 未获取到配置。")
         return
@@ -93,14 +98,12 @@ def main():
         print(f"[Fatal] 初始人不在名单中。")
         return
 
-    try:
-        skip_rows = supabase.table("duty_skips").select("roommate, start_date, skip_count, active").eq("dorm_id", dorm_id).eq("active", True).execute().data or []
-    except Exception as e:
-        print(f"[Warning] 轮空记录读取失败，将按普通排班发送: {e}")
-        skip_rows = []
-
-    today_person = person_for_date(today, anchor_date, roommates, anchor_person, skip_rows)
-    tomorrow_person = person_for_date(today + datetime.timedelta(days=1), anchor_date, roommates, anchor_person, skip_rows)
+    today_person = person_for_date(today, anchor_date, roommates, anchor_person, skip_rows, pause_rows)
+    if today_person is None:
+        print(f'[Info] {today} 暂停值日，不发送催促。')
+        return
+    tomorrow_person = person_for_date(today + datetime.timedelta(days=1), anchor_date, roommates, anchor_person, skip_rows, pause_rows)
+    tomorrow_line = '明天暂停值日' if tomorrow_person is None else f'明天接班：【{tomorrow_person}】'
 
     title = f"🚨 {dorm_id}宿舍倒垃圾警报！"
     content = f"""
@@ -108,7 +111,7 @@ def main():
 请速速清空垃圾桶，不要逼兄弟们求你！
 
 ---
-🔜 明天准备接客的是：【{tomorrow_person}】<br>
+🔜 {tomorrow_line}<br>
 
 <font color="#808080" size="2">*(本通知由宿舍云端物理超度系统 3.1.2 自动发送)*</font>
 """
