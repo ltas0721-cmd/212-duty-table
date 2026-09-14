@@ -1,10 +1,12 @@
 import datetime
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 from html import escape
 from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
 from supabase import Client, create_client
-from schedule import person_for_date, week_schedule
+from schedule import person_for_date, week_schedule, preview_pause
 
 
 st.set_page_config(
@@ -140,38 +142,31 @@ except Exception:
     st.stop()
 
 
-@st.cache_data(ttl=600)
-def get_dorm_data(dorm_id: str):
-    try:
-        result = supabase.table("dorm_rules").select("*").eq("dorm_id", dorm_id).execute()
-        return result.data[0] if result.data else None
-    except Exception as error:
-        st.warning(f"暂时无法读取云端排班数据：{error}")
-        return None
-
-
 dorm_id = "212"
-data = get_dorm_data(dorm_id)
-roommates, anchor_date, anchor_person = parse_config(data)
+today = datetime.datetime.now(ZoneInfo('Asia/Shanghai')).date()
 try:
-    skip_rows = supabase.table("duty_skips").select("id, roommate, start_date, skip_count, created_at, active").eq("dorm_id", dorm_id).eq("active", True).order("start_date").execute().data or []
+    snapshot = supabase.rpc('read_duty_schedule', {'p_dorm': dorm_id}).execute().data
+    data = snapshot['config']
+    skip_rows, pause_rows = snapshot['skips'], snapshot['pauses']
 except Exception:
-    skip_rows = []
+    st.error('暂时无法读取完整排班，请稍后重试。管理员请确认已执行暂停功能的数据库迁移。')
+    st.stop()
+roommates, anchor_date, anchor_person = parse_config(data)
 
 if data and roommates and anchor_date and anchor_person in roommates:
     left, right = st.columns([1.55, 1], gap="large")
     with right:
-        selected_date = st.date_input("选择查看日期", value=datetime.date.today(), format="YYYY-MM-DD")
+        selected_date = st.date_input("选择查看日期", value=today, format="YYYY-MM-DD")
         st.markdown('<div class="side-card"><div class="side-title">本周排班</div><div class="side-copy">从选定日期起的 7 天，提前看一眼。</div></div>', unsafe_allow_html=True)
         week_rows = []
         for day_offset in range(7):
             day_value = selected_date + datetime.timedelta(days=day_offset)
-            person = person_for_date(day_value, anchor_date, roommates, anchor_person, skip_rows)
+            person = person_for_date(day_value, anchor_date, roommates, anchor_person, skip_rows, pause_rows) or '暂停值日'
             week_rows.append(f'<div class="week-row"><span class="week-day">{day_value:%m/%d} · {"今天" if day_offset == 0 else "周" + "一二三四五六日"[day_value.weekday()]}</span><span class="week-person">{escape(person)}</span></div>')
         st.markdown(f'<div class="side-card"><div class="week-list">{"".join(week_rows)}</div></div>', unsafe_allow_html=True)
     with left:
-        today_person = person_for_date(selected_date, anchor_date, roommates, anchor_person, skip_rows)
-        tomorrow_person = person_for_date(selected_date + datetime.timedelta(days=1), anchor_date, roommates, anchor_person, skip_rows)
+        today_person = person_for_date(selected_date, anchor_date, roommates, anchor_person, skip_rows, pause_rows) or '暂停值日'
+        tomorrow_person = person_for_date(selected_date + datetime.timedelta(days=1), anchor_date, roommates, anchor_person, skip_rows, pause_rows) or '暂停值日'
         st.markdown(
             f'<section class="schedule-card"><div class="schedule-label">今日值日</div><div class="schedule-date">{escape(format_date(selected_date))}</div><div class="schedule-name">{escape(today_person)}</div><div class="schedule-next">明天接班：<strong>{escape(tomorrow_person)}</strong></div></section>',
             unsafe_allow_html=True,
@@ -186,7 +181,7 @@ if roommates:
     with skip_left:
         skip_person = st.selectbox("谁轮空", options=roommates, key="skip_person")
     with skip_mid:
-        skip_start = st.date_input("从哪天开始", value=datetime.date.today(), key="skip_start", format="YYYY-MM-DD")
+        skip_start = st.date_input("从哪天开始", value=today, key="skip_start", format="YYYY-MM-DD")
     with skip_right:
         skip_count = st.number_input("轮空次数", min_value=1, max_value=30, value=1, step=1, key="skip_count")
     if st.button("提交轮空标记", key="submit_skip"):
@@ -211,7 +206,45 @@ st.markdown(
 st.markdown('<section id="admin" class="admin-section"><div class="admin-card"><h2 class="admin-heading">管理排班</h2><p class="admin-copy">仅管理员使用。修改会直接写入云端数据库。</p></div></section>', unsafe_allow_html=True)
 with st.expander("打开管理员入口"):
     password = st.text_input("管理密码", type="password")
-    if password == admin_password:
+    if admin_password and password == admin_password:
+        st.markdown('**整体顺延一天**')
+        st.caption('历史不变，后续排班和连续补班一起后移。已发送的提醒不会撤回。')
+        if st.session_state.get('pause_done'):
+            st.success(st.session_state['pause_done'])
+        can_pause = bool(admin_supabase and roommates and anchor_date and anchor_person in roommates)
+        if st.button('从今天起顺延一天', disabled=not can_pause):
+            if not st.session_state.get('pause_request'):
+                pause_day, _, _ = preview_pause(today, skip_rows, pause_rows)
+                st.session_state['pause_request'] = {'id': str(uuid4()), 'date': str(pause_day)}
+        request = st.session_state.get('pause_request')
+        if request and can_pause:
+            completed = next((r for r in pause_rows if str(r['operation_id']) == request['id']), None)
+            if completed:
+                st.session_state['pause_done'] = f"已将 {completed['pause_date']} 设为暂停日，后续排班已顺延。"
+                del st.session_state['pause_request']
+                st.rerun()
+            pause_day, shifted_skips, shifted_pauses = preview_pause(today, skip_rows, pause_rows)
+            stale = str(pause_day) != request['date']
+            if stale:
+                st.warning('日期或排班已变化，请取消后重新预览。')
+            else:
+                before = week_schedule(today, 7, anchor_date, roommates, anchor_person, skip_rows, pause_rows)
+                after = week_schedule(today, 7, anchor_date, roommates, anchor_person, shifted_skips, shifted_pauses)
+                st.table([{'日期': str(a['date']), '原安排': a['person'] or '暂停值日', '顺延后': b['person'] or '暂停值日'} for a, b in zip(before, after)])
+            label = '确认：今天暂停，全部安排后移一天' if pause_day == today else f'确认：{pause_day} 暂停，后续安排后移一天'
+            if st.button(label, disabled=stale):
+                try:
+                    saved_date = admin_supabase.rpc('postpone_duty_day', {'p_dorm': dorm_id, 'p_operation': request['id'], 'p_expected_date': request['date']}).execute().data
+                except Exception:
+                    st.error('未能确认操作结果。可以重试同一次操作，不会重复顺延；若提示预览过期，请取消后重新预览。')
+                else:
+                    st.session_state['pause_done'] = f'已将 {saved_date} 设为暂停日，后续排班已顺延。'
+                    # Retain the token until the next snapshot confirms the write.
+                    st.cache_data.clear()
+                    st.rerun()
+            if st.button('取消本次预览'):
+                del st.session_state['pause_request']
+                st.rerun()
         if skip_rows:
             st.markdown("**轮空记录管理**")
             for row in skip_rows:
@@ -224,7 +257,7 @@ with st.expander("打开管理员入口"):
                         st.cache_data.clear()
                         st.rerun()
         current_names = data.get("roommates", "") if data else ""
-        current_date = anchor_date or datetime.date.today()
+        current_date = anchor_date or today
         new_names = st.text_input("室友名单（用英文逗号分隔）", value=current_names)
         new_date = st.date_input("锚点日期", value=current_date, format="YYYY-MM-DD")
         options = [name.strip() for name in new_names.split(",") if name.strip()]
